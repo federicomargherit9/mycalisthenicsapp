@@ -24,6 +24,7 @@
       <button class="nav-tab" data-view="calendar">📅 Calendario</button>
       <button class="nav-tab" data-view="timer">⏱ Timer</button>
       <button class="nav-tab" data-view="journal">📓 Diario</button>
+      <button class="nav-tab" data-view="technotes">🧠 Note tecniche</button>
       <button class="nav-tab" data-view="settings">⚙ Impostazioni</button>
     </div>
     <div class="drawer-list" id="drawerList"></div>
@@ -83,6 +84,13 @@
       <div id="journalList"></div>
     </main>
 
+    <main id="view-technotes" class="hidden">
+      <div class="settings-header"><h1>Note tecniche</h1></div>
+      <input type="text" id="techNotesSearch" class="search-bar" placeholder="Cerca per titolo...">
+      <button class="btn-add" id="btnAddTechNote" style="margin:12px 0 14px;">+ Nota tecnica</button>
+      <div id="techNotesList"></div>
+    </main>
+
     <main id="view-timer" class="hidden">
       <div class="fulltimer">
         <div class="timer-panel">
@@ -120,9 +128,24 @@
       <div class="settings-header"><h1>Impostazioni</h1></div>
 
       <div class="settings-section">
+        <div class="toggle-row">
+          <div class="r-info">
+            <div class="r-title">Auto-avvia recupero</div>
+            <div class="r-sub">al termine di serie, esercizio o fase, avvia da solo il timer di recupero</div>
+          </div>
+          <button class="toggle-switch" id="autoRestToggle" role="switch" aria-checked="false"><span class="knob"></span></button>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h2>Schede di allenamento</h2>
         <div id="settingsPlansList"></div>
         <button class="btn-add" id="btnAddPlanSettings">+ Aggiungi scheda</button>
+      </div>
+
+      <div class="settings-section">
+        <h2>Archivio</h2>
+        <div id="settingsArchiveList"></div>
       </div>
 
       <div class="settings-section">

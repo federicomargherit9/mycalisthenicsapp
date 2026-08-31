@@ -11,6 +11,7 @@ const K_LAST_PLAN = "mca_last_plan";
 const K_GOALS = "mca_goals_v1";
 const K_CALENDAR = "mca_calendar_v2";
 const K_JOURNAL = "mca_journal_v1";
+const K_TECH_NOTES = "mca_tech_notes_v1";
 const K_MUSIC_SECTIONS = "mca_music_sections_v1";
 const K_PLAN_GROUP_ORDER = "mca_plan_group_order_v1";
 
@@ -98,7 +99,7 @@ function seedTracks() { return []; }
    STATE
    ========================================================= */
 const state = {
-  plans: [], tracks: [], goals: [], calendar: {}, journal: [],
+  plans: [], tracks: [], goals: [], calendar: {}, journal: [], techNotes: [],
   musicSections: [], planGroupOrder: [],
   currentPlanId: null, progress: {},
   currentTrackId: null, playlistOpen: false,
@@ -109,7 +110,7 @@ const state = {
 
 function loadState() {
   state.plans = JSON.parse(localStorage.getItem(K_PLANS) || "null") || seedPlans();
-  state.plans.forEach(p => { if (!p.group) p.group = "Generale"; p.phases.forEach(ph => { if (ph.restAfter === undefined) ph.restAfter = 0; ph.exercises.forEach(e => { if (e.restAfter === undefined) e.restAfter = 0; if (e.repScheme === undefined) e.repScheme = null; }); }); });
+  state.plans.forEach(p => { if (!p.group) p.group = "Generale"; if (p.estimatedMinutes === undefined) p.estimatedMinutes = 0; if (p.archived === undefined) p.archived = false; p.phases.forEach(ph => { if (ph.restAfter === undefined) ph.restAfter = 0; ph.exercises.forEach(e => { if (e.restAfter === undefined) e.restAfter = 0; if (e.repScheme === undefined) e.repScheme = null; }); }); });
   state.tracks = JSON.parse(localStorage.getItem(K_TRACKS) || "null") || seedTracks();
   state.tracks.forEach(t => { if (t.src === undefined) t.src = ""; if (t.durationSec === undefined) t.durationSec = null; });
   state.goals = JSON.parse(localStorage.getItem(K_GOALS) || "[]");
@@ -131,6 +132,7 @@ function loadState() {
 
   state.journal = JSON.parse(localStorage.getItem(K_JOURNAL) || "[]");
   state.journal.forEach((n, i) => { if (!n.createdAt) n.createdAt = i; });
+  state.techNotes = JSON.parse(localStorage.getItem(K_TECH_NOTES) || "[]");
 
   state.musicSections = JSON.parse(localStorage.getItem(K_MUSIC_SECTIONS) || "null") || DEFAULT_MUSIC_SECTIONS.slice();
   // Make sure every category actually used by a saved track is represented too.
@@ -143,6 +145,11 @@ function loadState() {
 
   savePlans(); saveTracks(); saveCalendar(); saveMusicSections(); savePlanGroupOrder();
   state.currentPlanId = localStorage.getItem(K_LAST_PLAN) || (state.plans[0] && state.plans[0].id) || null;
+  const cp = state.plans.find(p => p.id === state.currentPlanId);
+  if (!cp || cp.archived) {
+    const firstActive = state.plans.find(p => !p.archived);
+    state.currentPlanId = firstActive ? firstActive.id : null;
+  }
   loadProgressForCurrentPlan();
 }
 function savePlans() { localStorage.setItem(K_PLANS, JSON.stringify(state.plans)); }
@@ -150,19 +157,59 @@ function saveTracks() { localStorage.setItem(K_TRACKS, JSON.stringify(state.trac
 function saveGoals() { localStorage.setItem(K_GOALS, JSON.stringify(state.goals)); }
 function saveCalendar() { localStorage.setItem(K_CALENDAR, JSON.stringify(state.calendar)); }
 function saveJournal() { localStorage.setItem(K_JOURNAL, JSON.stringify(state.journal)); }
+function saveTechNotes() { localStorage.setItem(K_TECH_NOTES, JSON.stringify(state.techNotes)); }
 function saveMusicSections() { localStorage.setItem(K_MUSIC_SECTIONS, JSON.stringify(state.musicSections)); }
 function savePlanGroupOrder() { localStorage.setItem(K_PLAN_GROUP_ORDER, JSON.stringify(state.planGroupOrder)); }
 function ensureGroupInOrder(name) { if (name && !state.planGroupOrder.includes(name)) { state.planGroupOrder.push(name); savePlanGroupOrder(); } }
 function orderedGroups() {
   const present = [];
-  state.plans.forEach(p => { if (!present.includes(p.group)) present.push(p.group); });
+  state.plans.filter(p => !p.archived).forEach(p => { if (!present.includes(p.group)) present.push(p.group); });
   const ordered = state.planGroupOrder.filter(g => present.includes(g));
   present.forEach(g => { if (!ordered.includes(g)) ordered.push(g); });
   return ordered;
 }
 
+const K_AUTO_REST = "mca_auto_rest";
+function getAutoRestSetting() { return localStorage.getItem(K_AUTO_REST) === "1"; }
+function setAutoRestSetting(on) { localStorage.setItem(K_AUTO_REST, on ? "1" : "0"); }
+function syncAutoRestToggleUI() {
+  const btn = $("#autoRestToggle");
+  if (!btn) return;
+  const on = getAutoRestSetting();
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-checked", on ? "true" : "false");
+}
+
+/* Undo/redo for accidental double-taps on the exercise check button.
+   Tracks only set-completion toggles for the plan currently open. */
+let undoStack = [];
+let redoStack = [];
+function clearUndoStacks() { undoStack = []; redoStack = []; }
+function pushUndoAction(exerciseId, previousValue) {
+  undoStack.push({ exerciseId, previousValue });
+  if (undoStack.length > 30) undoStack.shift();
+  redoStack = [];
+}
+function undoLastAction() {
+  const entry = undoStack.pop();
+  if (!entry) { toast("Niente da annullare."); return; }
+  const currentValue = state.progress[entry.exerciseId] || 0;
+  redoStack.push({ exerciseId: entry.exerciseId, previousValue: currentValue });
+  if (entry.previousValue) state.progress[entry.exerciseId] = entry.previousValue; else delete state.progress[entry.exerciseId];
+  saveProgress();
+}
+function redoLastAction() {
+  const entry = redoStack.pop();
+  if (!entry) { toast("Niente da ripristinare."); return; }
+  const currentValue = state.progress[entry.exerciseId] || 0;
+  undoStack.push({ exerciseId: entry.exerciseId, previousValue: currentValue });
+  if (entry.previousValue) state.progress[entry.exerciseId] = entry.previousValue; else delete state.progress[entry.exerciseId];
+  saveProgress();
+}
+
 function loadProgressForCurrentPlan() {
   state.celebratedSession = false;
+  clearUndoStacks();
   if (!state.currentPlanId) { state.progress = {}; return; }
   state.progress = JSON.parse(localStorage.getItem(K_PROGRESS_PREFIX + state.currentPlanId) || "{}");
 }
@@ -240,11 +287,11 @@ function todayIso() { return new Date().toISOString().slice(0, 10); }
 /* =========================================================
    VIEW SWITCHING
    ========================================================= */
-const VIEW_TITLES = { workout: "MyCalisthenicsApp", goals: "Obiettivi", calendar: "Calendario", journal: "Diario", settings: "Impostazioni", timer: "Timer" };
+const VIEW_TITLES = { workout: "MyCalisthenicsApp", goals: "Obiettivi", calendar: "Calendario", journal: "Diario", technotes: "Note tecniche", settings: "Impostazioni", timer: "Timer" };
 
 function switchView(view) {
   state.currentView = view;
-  ["workout", "goals", "calendar", "journal", "settings", "timer"].forEach(v => {
+  ["workout", "goals", "calendar", "journal", "technotes", "settings", "timer"].forEach(v => {
     $("#view-" + v).classList.toggle("hidden", v !== view);
   });
   $("#drawerAddPlanWrap").classList.toggle("hidden", view !== "workout");
@@ -254,7 +301,8 @@ function switchView(view) {
   if (view === "goals") renderGoals();
   if (view === "calendar") renderCalendar();
   if (view === "journal") renderJournal();
-  if (view === "settings") { renderSettingsPlans(); renderSettingsTracks(); renderMusicSections(); }
+  if (view === "technotes") renderTechNotes();
+  if (view === "settings") { renderSettingsPlans(); renderSettingsArchive(); renderSettingsTracks(); renderMusicSections(); syncAutoRestToggleUI(); }
   closeDrawer();
 }
 
@@ -266,7 +314,7 @@ function renderDrawer() {
   list.innerHTML = "";
   orderedGroups().forEach(g => {
     list.appendChild(el("div", "group-header", escapeHtml(g)));
-    state.plans.filter(p => p.group === g).forEach(p => {
+    state.plans.filter(p => p.group === g && !p.archived).forEach(p => {
       const totalEx = p.phases.reduce((s, ph) => s + ph.exercises.length, 0);
       const btn = el("button", "drawer-item" + (p.id === state.currentPlanId && state.currentView === "workout" ? " active" : ""));
       btn.innerHTML = `<span>${escapeHtml(p.title)}</span><small>${totalEx} es.</small>`;
@@ -307,14 +355,23 @@ function renderWorkout() {
   const titleBlock = el("div", "plan-title-block");
   const totalEx = plan.phases.reduce((s, ph) => s + ph.exercises.length, 0);
   const doneEx = plan.phases.reduce((s, ph) => s + ph.exercises.filter(e => (state.progress[e.id] || 0) >= e.sets).length, 0);
-  titleBlock.innerHTML = `<h1>${escapeHtml(plan.title)}</h1><div class="plan-meta">${escapeHtml(plan.group)} · ${doneEx}/${totalEx} esercizi completati</div>`;
+  const estStr = plan.estimatedMinutes ? ` · tempo stimato: ${fmtClock(plan.estimatedMinutes * 60)}` : "";
+  titleBlock.innerHTML = `<h1>${escapeHtml(plan.title)}</h1><div class="plan-meta">${escapeHtml(plan.group)} · ${doneEx}/${totalEx} esercizi completati${estStr}</div>`;
+  const toolbar = el("div", "workout-toolbar");
   const resetBtn = el("button", "plan-reset-btn", "↺ Reset progresso sessione");
   resetBtn.addEventListener("click", () => {
     plan.phases.forEach(ph => ph.exercises.forEach(e => delete state.progress[e.id]));
     saveProgress(); state.celebratedSession = false;
+    clearUndoStacks();
     renderWorkout();
   });
-  titleBlock.appendChild(resetBtn);
+  toolbar.appendChild(resetBtn);
+  const undoBtn = el("button", "undo-redo-btn", "↩"); undoBtn.title = "Annulla ultima azione";
+  undoBtn.addEventListener("click", () => { undoLastAction(); renderWorkout(); });
+  const redoBtn = el("button", "undo-redo-btn", "↪"); redoBtn.title = "Ripristina azione annullata";
+  redoBtn.addEventListener("click", () => { redoLastAction(); renderWorkout(); });
+  toolbar.appendChild(undoBtn); toolbar.appendChild(redoBtn);
+  titleBlock.appendChild(toolbar);
   main.appendChild(titleBlock);
 
   plan.phases.forEach((phase, phIdx) => {
@@ -323,7 +380,7 @@ function renderWorkout() {
     header.appendChild(el("h2", "", escapeHtml(phase.name)));
     phaseEl.appendChild(header);
 
-    phase.exercises.forEach(ex => {
+    phase.exercises.forEach((ex, exIdxInPhase) => {
       const completed = state.progress[ex.id] || 0;
       const isDone = completed >= ex.sets;
       const row = el("div", "exercise" + (isDone ? " done" : ""));
@@ -354,10 +411,23 @@ function renderWorkout() {
       const check = el("button", "exercise-check", isDone ? "✓" : "");
       check.addEventListener("click", () => {
         const cur = state.progress[ex.id] || 0;
-        state.progress[ex.id] = cur >= ex.sets ? 0 : cur + 1;
+        const newVal = cur >= ex.sets ? 0 : cur + 1;
+        pushUndoAction(ex.id, cur);
+        state.progress[ex.id] = newVal;
         saveProgress();
         renderWorkout();
         maybeCelebrate(plan);
+
+        if (newVal > cur && getAutoRestSetting()) {
+          const nowDone = newVal >= ex.sets;
+          if (!nowDone) {
+            if (ex.restSeconds) startRestTimer(ex.restSeconds, "Recupero — " + ex.name);
+          } else {
+            const isLastExInPhase = exIdxInPhase === phase.exercises.length - 1;
+            if (isLastExInPhase) { if (phase.restAfter) startRestTimer(phase.restAfter, "Recupero tra fasi"); }
+            else if (ex.restAfter) startRestTimer(ex.restAfter, "Recupero tra esercizi");
+          }
+        }
       });
       row.appendChild(check);
 
@@ -425,15 +495,69 @@ function hideCelebration() { $("#celebrationOverlay").classList.remove("open"); 
    TIMER / STOPWATCH — two independent clocks that can run at once.
    The floating widget shows one at a time (toggle), the full-screen
    Timer view shows both together.
+
+   Both clocks are tracked using real wall-clock timestamps (endAt /
+   startedAt), not just a per-second counter. Android sometimes reloads
+   a backgrounded PWA tab (e.g. after using the camera/gallery) to free
+   memory, which would wipe a plain in-memory counter. Anchoring to an
+   actual timestamp — saved to localStorage — means the clocks pick up
+   exactly where they should be even after a reload, instead of
+   silently resetting.
    ========================================================= */
-const restTimer = { baseSeconds: 60, remaining: 60, running: false, intervalId: null, label: "" };
-const stopwatch = { elapsed: 0, running: false, intervalId: null, beepIntervalSec: parseInt(localStorage.getItem("mca_stopwatch_beep") || "0", 10) };
+const K_TIMER_STATE = "mca_timer_state_v1";
+const restTimer = { baseSeconds: 60, remaining: 60, running: false, intervalId: null, label: "", endAt: null };
+const stopwatch = { baseElapsed: 0, startedAt: null, running: false, intervalId: null, beepIntervalSec: parseInt(localStorage.getItem("mca_stopwatch_beep") || "0", 10), lastBeepMark: 0 };
 let widgetMode = "timer"; // which clock the compact floating widget is currently showing
 
 function fmtClock(totalSec) {
   totalSec = Math.max(0, Math.round(totalSec));
   const m = Math.floor(totalSec / 60), s = totalSec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function restTimerRemaining() {
+  if (restTimer.running && restTimer.endAt) return Math.max(0, Math.round((restTimer.endAt - Date.now()) / 1000));
+  return restTimer.remaining;
+}
+function stopwatchElapsed() {
+  return stopwatch.baseElapsed + (stopwatch.running && stopwatch.startedAt ? (Date.now() - stopwatch.startedAt) / 1000 : 0);
+}
+function saveTimerState() {
+  localStorage.setItem(K_TIMER_STATE, JSON.stringify({
+    restTimer: { baseSeconds: restTimer.baseSeconds, remaining: restTimer.remaining, running: restTimer.running, endAt: restTimer.endAt, label: restTimer.label },
+    stopwatch: { baseElapsed: stopwatch.baseElapsed, startedAt: stopwatch.startedAt, running: stopwatch.running, beepIntervalSec: stopwatch.beepIntervalSec }
+  }));
+}
+function restoreTimerState() {
+  const saved = JSON.parse(localStorage.getItem(K_TIMER_STATE) || "null");
+  if (!saved) return;
+  let shouldExpand = false;
+  if (saved.restTimer) {
+    restTimer.baseSeconds = saved.restTimer.baseSeconds || 60;
+    restTimer.label = saved.restTimer.label || "";
+    if (saved.restTimer.running && saved.restTimer.endAt) {
+      const rem = Math.round((saved.restTimer.endAt - Date.now()) / 1000);
+      if (rem > 0) {
+        restTimer.remaining = rem; restTimer.running = true; restTimer.endAt = saved.restTimer.endAt;
+        startClockInterval("timer");
+        widgetMode = "timer"; shouldExpand = true;
+      } else {
+        restTimer.remaining = 0; restTimer.running = false; restTimer.endAt = null;
+        setTimeout(() => { playBeep(3); if (navigator.vibrate) navigator.vibrate([200, 100, 200]); }, 400);
+      }
+    } else {
+      restTimer.remaining = saved.restTimer.remaining != null ? saved.restTimer.remaining : restTimer.baseSeconds;
+    }
+  }
+  if (saved.stopwatch) {
+    stopwatch.baseElapsed = saved.stopwatch.baseElapsed || 0;
+    stopwatch.beepIntervalSec = saved.stopwatch.beepIntervalSec || 0;
+    if (saved.stopwatch.running && saved.stopwatch.startedAt) {
+      stopwatch.running = true; stopwatch.startedAt = saved.stopwatch.startedAt;
+      startClockInterval("stopwatch");
+    }
+  }
+  if (shouldExpand) expandTimerWidget();
 }
 
 function clockFor(which) { return which === "timer" ? restTimer : stopwatch; }
@@ -447,19 +571,23 @@ function stopClockInterval(which) {
   if (clock.intervalId) { clearInterval(clock.intervalId); clock.intervalId = null; }
 }
 function restTimerTick() {
-  restTimer.remaining -= 1;
+  restTimer.remaining = restTimerRemaining();
   if (restTimer.remaining <= 0) {
     restTimer.remaining = 0;
     stopClockInterval("timer");
-    restTimer.running = false;
+    restTimer.running = false; restTimer.endAt = null;
+    saveTimerState();
     playBeep(3);
     if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
   }
   refreshAllTimerDisplays();
 }
 function stopwatchTick() {
-  stopwatch.elapsed += 1;
-  if (stopwatch.beepIntervalSec > 0 && stopwatch.elapsed % stopwatch.beepIntervalSec === 0) playBeep(1);
+  const elapsedNow = stopwatchElapsed();
+  if (stopwatch.beepIntervalSec > 0) {
+    const mark = Math.floor(elapsedNow / stopwatch.beepIntervalSec);
+    if (mark > stopwatch.lastBeepMark) { stopwatch.lastBeepMark = mark; playBeep(1); }
+  }
   refreshAllTimerDisplays();
 }
 
@@ -491,25 +619,50 @@ function playBeep(times) {
 }
 
 function toggleClock(which) {
-  const clock = clockFor(which);
-  clock.running = !clock.running;
-  if (clock.running) {
-    if (which === "timer" && restTimer.remaining <= 0) restTimer.remaining = restTimer.baseSeconds;
-    startClockInterval(which);
-  } else stopClockInterval(which);
+  if (which === "timer") {
+    restTimer.running = !restTimer.running;
+    if (restTimer.running) {
+      if (restTimer.remaining <= 0) restTimer.remaining = restTimer.baseSeconds;
+      restTimer.endAt = Date.now() + restTimer.remaining * 1000;
+      startClockInterval("timer");
+    } else {
+      restTimer.remaining = restTimerRemaining();
+      restTimer.endAt = null;
+      stopClockInterval("timer");
+    }
+  } else {
+    stopwatch.running = !stopwatch.running;
+    if (stopwatch.running) {
+      stopwatch.startedAt = Date.now();
+      startClockInterval("stopwatch");
+    } else {
+      stopwatch.baseElapsed = stopwatchElapsed();
+      stopwatch.startedAt = null;
+      stopClockInterval("stopwatch");
+    }
+  }
+  saveTimerState();
   refreshAllTimerDisplays();
 }
 function resetClock(which) {
-  const clock = clockFor(which);
-  clock.running = false; stopClockInterval(which);
-  if (which === "timer") restTimer.remaining = restTimer.baseSeconds; else stopwatch.elapsed = 0;
+  if (which === "timer") {
+    restTimer.running = false; restTimer.endAt = null; stopClockInterval("timer");
+    restTimer.remaining = restTimer.baseSeconds;
+  } else {
+    stopwatch.running = false; stopwatch.startedAt = null; stopClockInterval("stopwatch");
+    stopwatch.baseElapsed = 0; stopwatch.lastBeepMark = 0;
+  }
+  saveTimerState();
   refreshAllTimerDisplays();
 }
 
 function refreshAllTimerDisplays() {
+  const restVal = restTimerRemaining();
+  const stopwatchVal = stopwatchElapsed();
+
   // Compact widget: shows whichever clock is currently selected there
   const widgetClock = clockFor(widgetMode);
-  const widgetVal = widgetMode === "timer" ? restTimer.remaining : stopwatch.elapsed;
+  const widgetVal = widgetMode === "timer" ? restVal : stopwatchVal;
   $("#timerDisplay").textContent = fmtClock(widgetVal);
   $("#timerAdjustRow").style.display = widgetMode === "timer" ? "flex" : "none";
   $("#timerStartBtn").textContent = widgetClock.running ? "Pausa" : "Avvia";
@@ -518,8 +671,8 @@ function refreshAllTimerDisplays() {
   $("#timerLabel").textContent = widgetMode === "timer" ? (restTimer.label || "") : "";
 
   // Full-screen Timer view: both clocks always shown together
-  document.querySelectorAll(".restTimerDisplayFull").forEach(elx => elx.textContent = fmtClock(restTimer.remaining));
-  document.querySelectorAll(".stopwatchDisplayFull").forEach(elx => elx.textContent = fmtClock(stopwatch.elapsed));
+  document.querySelectorAll(".restTimerDisplayFull").forEach(elx => elx.textContent = fmtClock(restVal));
+  document.querySelectorAll(".stopwatchDisplayFull").forEach(elx => elx.textContent = fmtClock(stopwatchVal));
   document.querySelectorAll(".restTimerStartBtnFull").forEach(b => b.textContent = restTimer.running ? "Pausa" : "Avvia");
   document.querySelectorAll(".stopwatchStartBtnFull").forEach(b => b.textContent = stopwatch.running ? "Pausa" : "Avvia");
   const labelEl = $("#restTimerLabelFull"); if (labelEl) labelEl.textContent = restTimer.label || "";
@@ -530,7 +683,9 @@ function startRestTimer(seconds, label) {
   widgetMode = "timer";
   expandTimerWidget();
   restTimer.running = true;
+  restTimer.endAt = Date.now() + seconds * 1000;
   startClockInterval("timer");
+  saveTimerState();
   refreshAllTimerDisplays();
 }
 
@@ -603,11 +758,34 @@ function wireWidgetDrag() {
   w.addEventListener("transitionend", clampWidgetPosition);
 }
 
-function expandTimerWidget() { $("#timerWidget").classList.remove("collapsed"); $("#timerWidget").classList.add("expanded"); clampWidgetPosition(); }
-function collapseTimerWidget() { $("#timerWidget").classList.remove("expanded"); $("#timerWidget").classList.add("collapsed"); clampWidgetPosition(); }
+function expandTimerWidget() { resizeWidgetKeepingAnchor(true); }
+function collapseTimerWidget() { resizeWidgetKeepingAnchor(false); }
+function resizeWidgetKeepingAnchor(expand) {
+  const w = $("#timerWidget");
+  const hasCustomPos = w.style.left && w.style.left !== "auto";
+  if (hasCustomPos) {
+    // Keep whichever edge (left or right) is closer to its screen edge fixed,
+    // so a widget docked on the right stays docked on the right when it
+    // grows/shrinks, instead of drifting toward the middle of the screen.
+    const beforeRect = w.getBoundingClientRect();
+    const distRight = window.innerWidth - beforeRect.right;
+    const anchorRight = beforeRect.left > distRight;
+    if (expand) { w.classList.remove("collapsed"); w.classList.add("expanded"); }
+    else { w.classList.remove("expanded"); w.classList.add("collapsed"); }
+    if (anchorRight) {
+      const newWidth = expand ? 220 : 56;
+      w.style.left = (beforeRect.right - newWidth) + "px";
+    }
+  } else {
+    if (expand) { w.classList.remove("collapsed"); w.classList.add("expanded"); }
+    else { w.classList.remove("expanded"); w.classList.add("collapsed"); }
+  }
+  clampWidgetPosition();
+}
 function wireTimer() {
   restoreWidgetPosition();
   wireWidgetDrag();
+  restoreTimerState();
   $("#timerCloseBtn").addEventListener("click", collapseTimerWidget);
   document.querySelectorAll(".mode-timer-btn").forEach(b => b.addEventListener("click", () => { widgetMode = "timer"; refreshAllTimerDisplays(); }));
   document.querySelectorAll(".mode-stopwatch-btn").forEach(b => b.addEventListener("click", () => { widgetMode = "stopwatch"; refreshAllTimerDisplays(); }));
@@ -617,7 +795,9 @@ function wireTimer() {
     btn.addEventListener("click", () => {
       const delta = parseInt(btn.dataset.adj, 10);
       restTimer.baseSeconds = Math.max(5, restTimer.baseSeconds + delta);
-      restTimer.remaining = Math.max(0, restTimer.remaining + delta);
+      if (restTimer.running && restTimer.endAt) { restTimer.endAt += delta * 1000; }
+      else { restTimer.remaining = Math.max(0, restTimer.remaining + delta); }
+      saveTimerState();
       refreshAllTimerDisplays();
     });
   });
@@ -631,7 +811,9 @@ function wireTimer() {
     btn.addEventListener("click", () => {
       const delta = parseInt(btn.dataset.adj, 10);
       restTimer.baseSeconds = Math.max(5, restTimer.baseSeconds + delta);
-      restTimer.remaining = Math.max(0, restTimer.remaining + delta);
+      if (restTimer.running && restTimer.endAt) { restTimer.endAt += delta * 1000; }
+      else { restTimer.remaining = Math.max(0, restTimer.remaining + delta); }
+      saveTimerState();
       refreshAllTimerDisplays();
     });
   });
@@ -640,8 +822,13 @@ function wireTimer() {
   beepInput.addEventListener("change", () => {
     stopwatch.beepIntervalSec = Math.max(0, parseInt(beepInput.value, 10) || 0);
     localStorage.setItem("mca_stopwatch_beep", String(stopwatch.beepIntervalSec));
+    saveTimerState();
     toast(stopwatch.beepIntervalSec ? `Avviso ogni ${stopwatch.beepIntervalSec}s attivato.` : "Avviso a intervalli disattivato.");
   });
+
+  // Also catch up immediately whenever the tab/PWA becomes visible again,
+  // rather than waiting for the next 1s tick.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshAllTimerDisplays(); });
 
   refreshAllTimerDisplays();
 }
@@ -841,7 +1028,7 @@ function renderSettingsPlans() {
     groupReorder.appendChild(gUp); groupReorder.appendChild(gDown);
     groupHeader.appendChild(groupReorder);
     list.appendChild(groupHeader);
-    const groupPlans = state.plans.filter(p => p.group === g);
+    const groupPlans = state.plans.filter(p => p.group === g && !p.archived);
     groupPlans.forEach((p) => {
       const globalIdx = state.plans.indexOf(p);
       const totalEx = p.phases.reduce((s, ph) => s + ph.exercises.length, 0);
@@ -854,6 +1041,20 @@ function renderSettingsPlans() {
       row.appendChild(reorder);
       const actions = el("div", "r-actions");
       const editBtn = el("button", "icon-mini", "✎"); editBtn.addEventListener("click", () => openPlanForm(p.id));
+      const archBtn = el("button", "icon-mini", "🗄");
+      archBtn.title = "Sposta in archivio";
+      archBtn.addEventListener("click", () => {
+        p.archived = true;
+        savePlans();
+        if (state.currentPlanId === p.id) {
+          const next = state.plans.find(x => !x.archived);
+          state.currentPlanId = next ? next.id : null;
+          if (state.currentPlanId) localStorage.setItem(K_LAST_PLAN, state.currentPlanId);
+          loadProgressForCurrentPlan();
+        }
+        renderSettingsPlans(); renderSettingsArchive(); renderDrawer(); renderWorkout();
+        toast("Scheda spostata in archivio.");
+      });
       const delBtn = el("button", "icon-mini danger", "🗑");
       delBtn.addEventListener("click", () => {
         if (!confirm(`Eliminare la scheda "${p.title}"?`)) return;
@@ -862,10 +1063,43 @@ function renderSettingsPlans() {
         if (state.currentPlanId === p.id) state.currentPlanId = state.plans[0] ? state.plans[0].id : null;
         renderSettingsPlans(); renderDrawer(); renderWorkout();
       });
-      actions.appendChild(editBtn); actions.appendChild(delBtn);
+      actions.appendChild(editBtn); actions.appendChild(archBtn); actions.appendChild(delBtn);
       row.appendChild(actions);
       list.appendChild(row);
     });
+  });
+}
+
+function renderSettingsArchive() {
+  const list = $("#settingsArchiveList");
+  if (!list) return;
+  list.innerHTML = "";
+  const archived = state.plans.filter(p => p.archived);
+  if (!archived.length) { list.appendChild(el("div", "playlist-empty", "Nessuna scheda archiviata.")); return; }
+  archived.forEach(p => {
+    const totalEx = p.phases.reduce((s, ph) => s + ph.exercises.length, 0);
+    const row = el("div", "card-row");
+    row.innerHTML = `<div class="r-info"><div class="r-title">${escapeHtml(p.title)}</div><div class="r-sub">${escapeHtml(p.group)} · ${p.phases.length} fasi · ${totalEx} esercizi</div></div>`;
+    const actions = el("div", "r-actions");
+    const restoreBtn = el("button", "icon-mini", "↺");
+    restoreBtn.title = "Ripristina";
+    restoreBtn.addEventListener("click", () => {
+      p.archived = false;
+      ensureGroupInOrder(p.group);
+      savePlans();
+      renderSettingsPlans(); renderSettingsArchive(); renderDrawer(); renderWorkout();
+      toast("Scheda ripristinata.");
+    });
+    const delBtn = el("button", "icon-mini danger", "🗑");
+    delBtn.addEventListener("click", () => {
+      if (!confirm(`Eliminare definitivamente "${p.title}"?`)) return;
+      state.plans = state.plans.filter(x => x.id !== p.id);
+      savePlans();
+      renderSettingsArchive();
+    });
+    actions.appendChild(restoreBtn); actions.appendChild(delBtn);
+    row.appendChild(actions);
+    list.appendChild(row);
   });
 }
 function movePlan(idx, dir) {
@@ -891,7 +1125,7 @@ function moveGroup(idx, dir) {
 function openPlanForm(planId) {
   const editing = !!planId;
   const plan = editing ? JSON.parse(JSON.stringify(state.plans.find(p => p.id === planId)))
-    : { id: uid("plan"), title: "", group: "Generale", phases: [] };
+    : { id: uid("plan"), title: "", group: "Generale", estimatedMinutes: 0, phases: [] };
 
   const content = $("#sheetContent");
   content.innerHTML = "";
@@ -901,12 +1135,19 @@ function openPlanForm(planId) {
   const titleInput = el("input"); titleInput.type = "text"; titleInput.value = plan.title; titleInput.placeholder = "Es. Scheda Statici";
   titleField.appendChild(titleInput); content.appendChild(titleField);
 
+  const row0 = el("div", "field-row");
   const groupField = el("div", "field", `<label>Gruppo</label>`);
   const groupInput = el("input"); groupInput.type = "text"; groupInput.value = plan.group; groupInput.setAttribute("list", "groupPresets"); groupInput.placeholder = "Skills, Braccia, Schiena...";
   const datalist = el("datalist"); datalist.id = "groupPresets";
   PLAN_GROUP_PRESETS.forEach(g => { const o = document.createElement("option"); o.value = g; datalist.appendChild(o); });
   groupField.appendChild(groupInput); groupField.appendChild(datalist);
-  content.appendChild(groupField);
+  row0.appendChild(groupField);
+
+  const durationField = el("div", "field", `<label>Tempo stimato (minuti)</label>`);
+  const durationInput = el("input"); durationInput.type = "number"; durationInput.min = "0"; durationInput.value = plan.estimatedMinutes || "";
+  durationInput.placeholder = "es. 45";
+  durationField.appendChild(durationInput); row0.appendChild(durationField);
+  content.appendChild(row0);
 
   const phasesWrap = el("div");
   content.appendChild(phasesWrap);
@@ -930,9 +1171,26 @@ function openPlanForm(planId) {
         const exBlock = el("div", "subblock"); exBlock.style.background = "var(--surface-3)";
         const exHeader = el("div", "subblock-header");
         exHeader.innerHTML = `<span>Esercizio ${eIdx + 1}</span>`;
+        const exHeaderActions = el("div", "subblock-header-actions");
+        const exReorder = el("div", "reorder-btns");
+        const exUp = el("button", "", "▲"); exUp.addEventListener("click", () => {
+          if (eIdx <= 0) return;
+          const [moved] = phase.exercises.splice(eIdx, 1);
+          phase.exercises.splice(eIdx - 1, 0, moved);
+          renderPhases();
+        });
+        const exDown = el("button", "", "▼"); exDown.addEventListener("click", () => {
+          if (eIdx >= phase.exercises.length - 1) return;
+          const [moved] = phase.exercises.splice(eIdx, 1);
+          phase.exercises.splice(eIdx + 1, 0, moved);
+          renderPhases();
+        });
+        exReorder.appendChild(exUp); exReorder.appendChild(exDown);
+        exHeaderActions.appendChild(exReorder);
         const rmEx = el("button", "mini-remove", "Rimuovi");
         rmEx.addEventListener("click", () => { phase.exercises.splice(eIdx, 1); renderPhases(); });
-        exHeader.appendChild(rmEx); exBlock.appendChild(exHeader);
+        exHeaderActions.appendChild(rmEx);
+        exHeader.appendChild(exHeaderActions); exBlock.appendChild(exHeader);
 
         const nf = el("div", "field", "<label>Nome esercizio</label>");
         const ni = el("input"); ni.type = "text"; ni.value = ex.name; ni.addEventListener("input", () => ex.name = ni.value);
@@ -1046,6 +1304,7 @@ function openPlanForm(planId) {
   saveBtn.addEventListener("click", () => {
     plan.title = titleInput.value.trim() || "Scheda senza nome";
     plan.group = groupInput.value.trim() || "Generale";
+    plan.estimatedMinutes = Math.max(0, parseInt(durationInput.value, 10) || 0);
     ensureGroupInOrder(plan.group);
     if (editing) { state.plans[state.plans.findIndex(p => p.id === planId)] = plan; }
     else { state.plans.push(plan); state.currentPlanId = plan.id; localStorage.setItem(K_LAST_PLAN, plan.id); loadProgressForCurrentPlan(); }
@@ -1516,6 +1775,78 @@ function openNoteForm(noteId) {
 }
 
 /* =========================================================
+   TECH NOTES — like the journal, but manually reorderable and
+   searchable by title. New notes go to the top of the list.
+   ========================================================= */
+let techNotesQuery = "";
+function renderTechNotes() {
+  const list = $("#techNotesList"); list.innerHTML = "";
+  const q = techNotesQuery.trim().toLowerCase();
+  const filtered = q ? state.techNotes.filter(n => n.title.toLowerCase().includes(q)) : state.techNotes;
+  if (!filtered.length) {
+    list.appendChild(el("div", "playlist-empty", q ? "Nessuna nota tecnica trovata." : "Nessuna nota tecnica. Scrivi la prima!"));
+    return;
+  }
+  filtered.forEach(n => {
+    const globalIdx = state.techNotes.indexOf(n);
+    const card = el("div", "note-card");
+    card.innerHTML = `<div class="n-head"><div class="n-title">${escapeHtml(n.title)}</div><div class="n-date">${fmtDate(n.date)}</div></div><div class="n-body">${escapeHtml(n.body)}</div>`;
+    const actions = el("div", "n-actions");
+    if (!q) {
+      const up = el("button", "", "▲"); up.addEventListener("click", () => moveTechNote(globalIdx, -1));
+      const down = el("button", "", "▼"); down.addEventListener("click", () => moveTechNote(globalIdx, 1));
+      actions.appendChild(up); actions.appendChild(down);
+    }
+    const editBtn = el("button", "", "Modifica"); editBtn.addEventListener("click", () => openTechNoteForm(n.id));
+    const delBtn = el("button", "", "Elimina");
+    delBtn.addEventListener("click", () => { if (!confirm("Eliminare la nota tecnica?")) return; state.techNotes = state.techNotes.filter(x => x.id !== n.id); saveTechNotes(); renderTechNotes(); });
+    actions.appendChild(editBtn); actions.appendChild(delBtn);
+    card.appendChild(actions);
+    list.appendChild(card);
+  });
+}
+function moveTechNote(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= state.techNotes.length) return;
+  const [n] = state.techNotes.splice(idx, 1);
+  state.techNotes.splice(newIdx, 0, n);
+  saveTechNotes(); renderTechNotes();
+}
+function openTechNoteForm(noteId) {
+  const editing = !!noteId;
+  const note = editing ? { ...state.techNotes.find(n => n.id === noteId) } : { id: uid("tnote"), title: "", date: todayIso(), body: "" };
+
+  const content = $("#sheetContent");
+  content.innerHTML = "";
+  content.appendChild(el("h3", "", editing ? "Modifica nota tecnica" : "Nuova nota tecnica"));
+
+  const row1b = el("div", "field-row");
+  const titleF2 = el("div", "field", "<label>Titolo</label>");
+  const titleI2 = el("input"); titleI2.type = "text"; titleI2.value = note.title; titleF2.appendChild(titleI2);
+  const dateF2 = el("div", "field", "<label>Data</label>");
+  const dateI2 = el("input"); dateI2.type = "date"; dateI2.value = note.date; dateF2.appendChild(dateI2);
+  row1b.appendChild(titleF2); row1b.appendChild(dateF2); content.appendChild(row1b);
+
+  const bodyF2 = el("div", "field", "<label>Nota</label>");
+  const bodyI2 = el("textarea"); bodyI2.value = note.body; bodyI2.style.minHeight = "120px";
+  bodyF2.appendChild(bodyI2); content.appendChild(bodyF2);
+
+  const actions2 = el("div", "sheet-actions");
+  const cancelBtn2 = el("button", "btn-secondary", "Annulla"); cancelBtn2.addEventListener("click", closeSheet);
+  const saveBtn2 = el("button", "btn-primary", "Salva");
+  saveBtn2.addEventListener("click", () => {
+    note.title = titleI2.value.trim() || "Senza titolo";
+    note.date = dateI2.value || todayIso();
+    note.body = bodyI2.value.trim();
+    if (editing) { state.techNotes[state.techNotes.findIndex(n => n.id === noteId)] = note; }
+    else { state.techNotes.unshift(note); }
+    saveTechNotes(); renderTechNotes(); closeSheet(); toast("Nota tecnica salvata.");
+  });
+  actions2.appendChild(cancelBtn2); actions2.appendChild(saveBtn2); content.appendChild(actions2);
+  openSheet();
+}
+
+/* =========================================================
    GENERIC BOTTOM SHEET
    ========================================================= */
 function openSheet() { $("#sheetOverlay").classList.add("open"); }
@@ -1528,6 +1859,10 @@ function wireGlobal() {
   $("#btnMenu").addEventListener("click", openDrawer);
   $("#drawerOverlay").addEventListener("click", closeDrawer);
   $("#btnSettings").addEventListener("click", () => switchView("settings"));
+  $("#autoRestToggle").addEventListener("click", () => {
+    setAutoRestSetting(!getAutoRestSetting());
+    syncAutoRestToggleUI();
+  });
   document.querySelectorAll(".nav-tab").forEach(btn => btn.addEventListener("click", () => switchView(btn.dataset.view)));
   $("#drawerAddPlan").addEventListener("click", () => { closeDrawer(); openPlanForm(null); });
   $("#btnAddPlanSettings").addEventListener("click", () => openPlanForm(null));
@@ -1539,6 +1874,8 @@ function wireGlobal() {
   });
   $("#btnAddGoal").addEventListener("click", () => openGoalForm(null));
   $("#btnAddNote").addEventListener("click", () => openNoteForm(null));
+  $("#btnAddTechNote").addEventListener("click", () => openTechNoteForm(null));
+  $("#techNotesSearch").addEventListener("input", (e) => { techNotesQuery = e.target.value; renderTechNotes(); });
   $("#calPrev").addEventListener("click", () => { calState.month--; if (calState.month < 0) { calState.month = 11; calState.year--; } renderCalendar(); });
   $("#calNext").addEventListener("click", () => { calState.month++; if (calState.month > 11) { calState.month = 0; calState.year++; } renderCalendar(); });
   $("#celebrationCloseBtn").addEventListener("click", hideCelebration);
@@ -1574,6 +1911,7 @@ function exportBackup() {
     goals: state.goals,
     calendar: state.calendar,
     journal: state.journal,
+    techNotes: state.techNotes,
     musicSections: state.musicSections,
     planGroupOrder: state.planGroupOrder
   };
@@ -1610,6 +1948,7 @@ function importBackup(file) {
     const addedTracks = mergeById(state.tracks, data.tracks);
     const addedGoals = mergeById(state.goals, data.goals);
     const addedNotes = mergeById(state.journal, data.journal);
+    const addedTechNotes = mergeById(state.techNotes, data.techNotes);
     const addedSections = mergeStrings(state.musicSections, data.musicSections);
     mergeStrings(state.planGroupOrder, data.planGroupOrder);
 
@@ -1622,12 +1961,12 @@ function importBackup(file) {
       });
     }
 
-    savePlans(); saveTracks(); saveGoals(); saveJournal(); saveMusicSections(); savePlanGroupOrder(); saveCalendar();
+    savePlans(); saveTracks(); saveGoals(); saveJournal(); saveTechNotes(); saveMusicSections(); savePlanGroupOrder(); saveCalendar();
     state.plans.forEach(p => ensureGroupInOrder(p.group));
     if (!state.currentPlanId && state.plans[0]) { state.currentPlanId = state.plans[0].id; localStorage.setItem(K_LAST_PLAN, state.currentPlanId); }
     loadProgressForCurrentPlan();
-    renderDrawer(); renderWorkout(); renderSettingsPlans(); renderSettingsTracks(); renderMusicSections(); renderPlaylistSheet();
-    toast(`Uniti: +${addedPlans} schede, +${addedTracks} canzoni, +${addedGoals} obiettivi, +${addedNotes} note, +${addedCalEntries} eventi calendario.`);
+    renderDrawer(); renderWorkout(); renderSettingsPlans(); renderSettingsArchive(); renderSettingsTracks(); renderMusicSections(); renderPlaylistSheet();
+    toast(`Uniti: +${addedPlans} schede, +${addedTracks} canzoni, +${addedGoals} obiettivi, +${addedNotes} note, +${addedTechNotes} note tecniche, +${addedCalEntries} eventi calendario.`);
   };
   reader.readAsText(file);
 }
