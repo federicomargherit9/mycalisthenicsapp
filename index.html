@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>MyCalisthenicsApp</title>
+<meta name="theme-color" content="#14130f">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <nav class="drawer" id="drawer">
+    <div class="drawer-header"><h2>MyCalisthenicsApp</h2></div>
+    <div class="nav-tabs" id="navTabs">
+      <button class="nav-tab active" data-view="workout">🏋 Allenamento</button>
+      <button class="nav-tab" data-view="goals">🎯 Obiettivi</button>
+      <button class="nav-tab" data-view="calendar">📅 Calendario</button>
+      <button class="nav-tab" data-view="timer">⏱ Timer</button>
+      <button class="nav-tab" data-view="journal">📓 Diario</button>
+      <button class="nav-tab" data-view="technotes">🧠 Note tecniche</button>
+      <button class="nav-tab" data-view="settings">⚙ Impostazioni</button>
+    </div>
+    <div class="drawer-list" id="drawerList"></div>
+    <div style="padding:10px;" id="drawerAddPlanWrap">
+      <button class="btn-add" id="drawerAddPlan">+ Nuova scheda</button>
+    </div>
+  </nav>
+
+  <div class="app-main-col">
+    <header class="topbar">
+      <button class="icon-btn" id="btnMenu" aria-label="Menu">☰</button>
+      <div class="brand" id="topbarTitle">MyCalisthenics<span>App</span></div>
+      <button class="icon-btn" id="btnSettings" aria-label="Impostazioni">⚙</button>
+    </header>
+
+    <main id="view-workout"></main>
+
+    <main id="view-goals" class="hidden">
+      <div class="settings-header"><h1>Obiettivi</h1></div>
+      <div class="quote-banner" id="goalsQuoteBanner"></div>
+      <div class="settings-section">
+        <h2>In corso</h2>
+        <div id="goalsActiveList"></div>
+      </div>
+      <div class="settings-section">
+        <h2>Raggiunti</h2>
+        <div id="goalsAchievedList"></div>
+      </div>
+      <button class="btn-add" id="btnAddGoal">+ Nuovo obiettivo</button>
+    </main>
+
+    <main id="view-calendar" class="hidden">
+      <div class="settings-header"><h1>Calendario</h1></div>
+      <div class="cal-nav">
+        <button class="icon-btn" id="calPrev">←</button>
+        <div class="cal-month-label" id="calMonthLabel"></div>
+        <button class="icon-btn" id="calNext">→</button>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="cal-legend">
+        <span><span class="dot" style="background:#ff4d1c"></span>Allenamento</span>
+        <span><span class="dot" style="background:#7fb069"></span>Cardio</span>
+        <span><span class="dot" style="background:#6b6558"></span>Rest day</span>
+        <span><span class="dot" style="background:#5b8dae"></span>Personalizzato</span>
+        <span><span class="dot" style="background:#c58bf2"></span>Scadenza obiettivo</span>
+        <span><span class="dot" style="background:gold"></span>Obiettivo raggiunto</span>
+      </div>
+      <div class="settings-section" style="margin-top:20px;">
+        <h2>Prossimi giorni programmati</h2>
+        <div id="calUpcomingList"></div>
+      </div>
+    </main>
+
+    <main id="view-journal" class="hidden">
+      <div class="settings-header"><h1>Diario</h1></div>
+      <button class="btn-add" id="btnAddNote" style="margin-bottom:14px;">+ Nuova nota</button>
+      <div id="journalList"></div>
+    </main>
+
+    <main id="view-technotes" class="hidden">
+      <div class="settings-header"><h1>Note tecniche</h1></div>
+      <input type="text" id="techNotesSearch" class="search-bar" placeholder="Cerca per titolo...">
+      <button class="btn-add" id="btnAddTechNote" style="margin:12px 0 14px;">+ Nota tecnica</button>
+      <div id="techNotesList"></div>
+    </main>
+
+    <main id="view-timer" class="hidden">
+      <div class="fulltimer">
+        <div class="timer-panel">
+          <h3>Cronometro</h3>
+          <div class="timer-display-big stopwatchDisplayFull">00:00</div>
+          <div class="timer-controls-full">
+            <button class="timer-start-btn stopwatchStartBtnFull" id="stopwatchStartBtnFull">Avvia</button>
+            <button class="timer-reset-btn stopwatchResetBtnFull" id="stopwatchResetBtnFull">Reset</button>
+          </div>
+          <div class="field beep-interval-field">
+            <label>Avviso ogni tot secondi (0 = disattivato)</label>
+            <input type="number" id="stopwatchBeepInterval" min="0" placeholder="es. 60 per un circuito EMOM">
+          </div>
+        </div>
+
+        <div class="timer-panel">
+          <h3>Timer</h3>
+          <div class="timer-label-full" id="restTimerLabelFull"></div>
+          <div class="timer-display-big restTimerDisplayFull">01:00</div>
+          <div class="timer-adjust-row big" id="restTimerAdjustFull">
+            <button data-adj="-15">-15s</button>
+            <button data-adj="-5">-5s</button>
+            <button data-adj="5">+5s</button>
+            <button data-adj="15">+15s</button>
+          </div>
+          <div class="timer-controls-full">
+            <button class="timer-start-btn restTimerStartBtnFull" id="restTimerStartBtnFull">Avvia</button>
+            <button class="timer-reset-btn restTimerResetBtnFull" id="restTimerResetBtnFull">Reset</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <main id="view-settings" class="hidden">
+      <div class="settings-header"><h1>Impostazioni</h1></div>
+
+      <div class="settings-section">
+        <div class="toggle-row">
+          <div class="r-info">
+            <div class="r-title">Auto-avvia recupero</div>
+            <div class="r-sub">al termine di serie, esercizio o fase, avvia da solo il timer di recupero</div>
+          </div>
+          <button class="toggle-switch" id="autoRestToggle" role="switch" aria-checked="false"><span class="knob"></span></button>
+        </div>
+        <div class="toggle-row">
+          <div class="r-info">
+            <div class="r-title">Notifica di fine recupero</div>
+            <div class="r-sub">avvisa anche a schermo spento o con l'app in background (chiede il permesso una volta)</div>
+          </div>
+          <button class="toggle-switch" id="notifyToggle" role="switch" aria-checked="false"><span class="knob"></span></button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h2>Schede di allenamento</h2>
+        <div id="settingsPlansList"></div>
+        <button class="btn-add" id="btnAddPlanSettings">+ Aggiungi scheda</button>
+      </div>
+
+      <div class="settings-section">
+        <h2>Archivio</h2>
+        <div id="settingsArchiveList"></div>
+      </div>
+
+      <div class="settings-section">
+        <h2>Fasi musicali</h2>
+        <div id="settingsMusicSectionsList"></div>
+        <button class="btn-add" id="btnAddMusicSection">+ Aggiungi fase</button>
+      </div>
+
+      <div class="settings-section">
+        <h2>Playlist</h2>
+        <div id="settingsTracksList"></div>
+        <button class="btn-add" id="btnAddTrack">+ Aggiungi canzone</button>
+      </div>
+
+      <div class="settings-section">
+        <h2>Dati</h2>
+        <div class="card-row">
+          <div class="r-info">
+            <div class="r-title">Esporta backup</div>
+            <div class="r-sub">scarica un file con schede, playlist, obiettivi, note e calendario</div>
+          </div>
+          <button class="icon-mini" id="btnExportBackup">⬇</button>
+        </div>
+        <div class="card-row">
+          <div class="r-info">
+            <div class="r-title">Importa e unisci backup</div>
+            <div class="r-sub">aggiunge i dati di un backup senza cancellare quelli già presenti</div>
+          </div>
+          <button class="icon-mini" id="btnImportBackup">⬆</button>
+        </div>
+        <input type="file" id="importBackupInput" accept="application/json" style="display:none;">
+        <div class="card-row">
+          <div class="r-info">
+            <div class="r-title">Ripristina schede di esempio</div>
+            <div class="r-sub">non tocca canzoni, obiettivi, diario o calendario</div>
+          </div>
+          <button class="icon-mini" id="btnResetPlans">↺</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Floating timer widget -->
+  <div class="timer-widget collapsed" id="timerWidget">
+    <button class="timer-toggle" id="timerToggleBtn">⏱</button>
+    <div class="timer-body">
+      <div class="timer-drag-handle" id="timerDragHandle">⠿</div>
+      <button class="timer-close" id="timerCloseBtn">✕</button>
+      <div class="timer-label" id="timerLabel"></div>
+      <div class="timer-mode-switch">
+        <button id="modeTimerBtn" class="active mode-timer-btn">Timer</button>
+        <button id="modeStopwatchBtn" class="mode-stopwatch-btn">Cronometro</button>
+      </div>
+      <div class="timer-display" id="timerDisplay">01:00</div>
+      <div class="timer-adjust" id="timerAdjustRow">
+        <button data-adj="-15">-15s</button>
+        <button data-adj="-5">-5s</button>
+        <button data-adj="5">+5s</button>
+        <button data-adj="15">+15s</button>
+      </div>
+      <div class="timer-controls">
+        <button class="btn-start" id="timerStartBtn">Avvia</button>
+        <button class="btn-reset" id="timerResetBtn">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom player -->
+  <div class="player">
+    <div class="playlist-sheet" id="playlistSheet"></div>
+    <div class="player-bar">
+      <div class="player-note">♪</div>
+      <div class="player-meta">
+        <div class="player-title" id="playerTitle">Nessuna canzone</div>
+        <div class="player-artist" id="playerArtist">—</div>
+      </div>
+      <button class="player-playpause" id="playerPlayPause">▶</button>
+      <button class="player-mini-btn" id="playerRestart" aria-label="Ricomincia">⟲</button>
+      <button class="player-mini-btn" id="playerNext" aria-label="Successiva">⏭</button>
+      <button class="player-expand" id="playerExpand">▲</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Generic bottom sheet for forms -->
+<div class="sheet-overlay" id="sheetOverlay">
+  <div class="sheet" id="sheetContent"></div>
+</div>
+
+<!-- End-of-workout celebration -->
+<div class="celebration-overlay" id="celebrationOverlay">
+  <div class="confetti-field" id="confettiField"></div>
+  <div class="celebration-card">
+    <div class="celebration-check">✓</div>
+    <h2>Allenamento completato</h2>
+    <p class="celebration-quote" id="celebrationQuote"></p>
+    <p class="celebration-author" id="celebrationAuthor"></p>
+    <button class="btn-primary" id="celebrationCloseBtn">Chiudi</button>
+  </div>
+</div>
+
+<audio id="audioEl" preload="none"></audio>
+
+<script src="js/app.js"></script>
+</body>
+</html>
