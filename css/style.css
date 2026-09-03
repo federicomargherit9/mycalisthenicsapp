@@ -238,7 +238,7 @@ main#view-workout {
   flex: 1; font-size: 10px; font-family: var(--font-mono); text-transform: uppercase;
   padding: 5px 0; border-radius: 6px; color: var(--iron); border: 1px solid var(--line);
 }
-.timer-mode-switch button.active { color: var(--accent); border-color: var(--accent-dim); }
+.timer-mode-switch button.active { color: var(--accent); border-color: var(--accent-dim); background: rgba(255,77,28,0.12); font-weight: 700; }
 
 .timer-display {
   font-family: var(--font-mono); font-size: 36px; font-weight: 700; text-align: center;

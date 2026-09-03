@@ -808,7 +808,16 @@ function wireWidgetDrag() {
   w.addEventListener("transitionend", clampWidgetPosition);
 }
 
-function expandTimerWidget() { resizeWidgetKeepingAnchor(true); }
+function expandTimerWidget() {
+  // Every time you re-open the widget, default back to the Timer tab —
+  // unless the stopwatch is actively running, in which case that's
+  // clearly what you're using and it stays in view. This prevents
+  // Start/Reset from silently acting on a stopwatch you forgot was
+  // showing after checking it once mid-workout.
+  if (!stopwatch.running) widgetMode = "timer";
+  resizeWidgetKeepingAnchor(true);
+  refreshAllTimerDisplays();
+}
 function collapseTimerWidget() { resizeWidgetKeepingAnchor(false); }
 function resizeWidgetKeepingAnchor(expand) {
   const w = $("#timerWidget");
